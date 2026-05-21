@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-ulimit -n 1048576 || true
+#ulimit -n 1048576 || true
 
 # ---- Box64 safer defaults ----
 export BOX64_DYNAREC_BIGBLOCK=1
@@ -43,29 +43,39 @@ SANDBOX_INI_PATH="${SANDBOX_INI_PATH:-}"
 
 # ---------------- helpers ----------------
 do_update() {
-  echo "Running SteamCMD (Windows) update..."
+  echo "Running SteamCMD (Windows) update via runscript..."
+  cd "$STEAMCMD_DIR" || exit 1
 
-  # Convert Linux path to Wine Z: drive path
-  # e.g., /home/steam/abiotic -> Z:\home\steam\abiotic
-  local win_install_dir="Z:${INSTALL_DIR//\//\\}"
+  local script_file="update.txt"
+  local validate_cmd=""
   
-  local args=( +@sSteamCmdForcePlatformType windows +login anonymous +force_install_dir "$win_install_dir" +app_update 2857200 )
-  [ "$VALIDATE" = "1" ] && args+=( validate )
-  args+=( +quit )
+  [ "$VALIDATE" = "1" ] && validate_cmd=" validate"
 
-  # up to 3 attempts
+  # SteamCMD instalará en su ruta por defecto felizmente
+  cat <<EOF > "$script_file"
+@sSteamCmdForcePlatformType windows
+login anonymous
+app_update 2857200$validate_cmd
+quit
+EOF
+
   for attempt in 1 2 3; do
     echo "Update attempt #$attempt..."
     set +e
     
-    # Run Windows SteamCMD via Wine
-    "$WINE_FOR_SERVER" "$STEAMCMD_DIR/steamcmd.exe" "${args[@]}" 2>&1 | tee /tmp/steamcmd_attempt.log
-
+    "$WINE_FOR_SERVER" steamcmd.exe +runscript "$script_file" 2>&1 | tee /tmp/steamcmd_attempt.log
     local rc=${PIPESTATUS[0]}
     set -e
 
+    # Parche: Si SteamCMD devuelve 0 pero el log dice "Error!", forzamos el fallo
+    if grep -q "Error!" /tmp/steamcmd_attempt.log; then
+       echo "Se detectó un error interno en SteamCMD (ej. 0x202). Forzando reintento..."
+       rc=1
+    fi
+
     if [ $rc -eq 0 ]; then
        echo "SteamCMD update succeeded."
+       cd - > /dev/null || true
        return 0
     fi
 
@@ -76,7 +86,6 @@ do_update() {
   echo "SteamCMD update failed after retries."
   exit 1
 }
-
 timestamp() { date -u +"%Y%m%d-%H%M%S"; }
 
 do_backup() {

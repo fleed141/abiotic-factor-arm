@@ -1,23 +1,43 @@
 services:
+  # 1. El micro-contenedor que prepara los permisos automáticamente
+  fix-permissions:
+    image: alpine:latest
+    user: root
+    volumes:
+      # Mapeamos las carpetas físicas que usa tu servidor
+      - ./steamapps:/fix_steamapps:z
+      - ./steam:/fix_steam:Z
+      - ./backups:/fix_backups:Z
+    # Ejecuta el chown usando el UID 1001 y se apaga
+    command: /bin/sh -c "chown -R 1001:1001 /fix_steamapps /fix_steam /fix_backups"
+
+  # 2. Tu servidor principal
   abiotic:
-    # Use 'host' network mode for best performance and simple port management
-    # Ensure Oracle Cloud Security List allows Ingress UDP/TCP on 7777 and 27015
-    network_mode: "host"
-    # user: "0:0"
     build: .
     container_name: abiotic-factor
     restart: unless-stopped
+    
+    # Le decimos que NO arranque hasta que fix-permissions haya terminado
+    depends_on:
+      fix-permissions:
+        condition: service_completed_successfully
+
+    ports:
+      - "7777:7777/udp"
+      - "27015:27015/udp"
+
     environment:
-      # ---- Wine/Box64 settings (Optimized for ARM64) ----
       WINEDEBUG: "-all"
       WINEESYNC: "1"
       WINEFSYNC: "1"
       ARM64_DEVICE: "adlink"
-
+      SERVER_DIR: "/home/steam/steamcmd/steamapps/common/Abiotic Factor Dedicated Server"
+      #SERVER_DIR: "/home/steam/steamcmd/steamapps/common/Abiotic Factor Dedicated Server"
+      
       # ---- Server config ----
       MAX_PLAYERS: "6"
-      SERVER_NAME: "My Abiotic Server"
-      SERVER_PASSWORD: "ChangeMe123"      # CHANGE THIS!
+      SERVER_NAME: "MyAbioticoReaction"
+      SERVER_PASSWORD: "locuron123"      # CHANGE THIS!
       WORLD_SAVE_NAME: "Cascade"
 
       # ---- Behavior toggles ----
@@ -28,16 +48,15 @@ services:
 
       LOGGING: "0"
       WARMUP_SECONDS: "0"
-    volumes:
-      # Persistent data
-      - ./server:/home/steam/abiotic:Z
-      - ./data:/home/steam/abiotic/AbioticFactor/Saved:Z
-      - ./steam:/home/steam/Steam:Z
-      - ./backups:/backups:Z
-      
-      # Time sync
-      - /etc/localtime:/etc/localtime:ro
+      TZ: "America/Asuncion"
+
     ulimits:
       nofile:
         soft: 1048576
         hard: 1048576
+    volumes:
+      # Mapeo directo, sin symlinks
+      - "./steamapps:/home/steam/steamcmd/steamapps:z"
+      - "./steam:/home/steam/Steam:Z"
+      - "./backups:/backups:Z"
+      - "/etc/localtime:/etc/localtime:ro"
